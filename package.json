@@ -1,0 +1,15 @@
+{
+  "name": "new-app-test-4eb73d",
+  "version": "1.0.0",
+  "private": true,
+  "description": "new_app_test",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
