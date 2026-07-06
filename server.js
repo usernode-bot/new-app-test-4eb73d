@@ -63,7 +63,12 @@ const ANALYSIS_TOOL = {
       },
       instrument: {
         type: 'string',
-        description: 'Instrument/pair read from the chart, e.g. "EUR/USD" or "BTC/USDT". "Tidak terbaca" if not visible.',
+        description: 'Instrument/pair read from the chart, e.g. "XAU/USD" (gold), "EUR/USD", or "BTC/USDT". Normalize gold tickers like GOLD, XAUUSD, GC to "XAU/USD". "Tidak terbaca" if not visible.',
+      },
+      instrument_class: {
+        type: 'string',
+        enum: ['gold', 'forex', 'crypto', 'index', 'stock', 'commodity', 'other'],
+        description: 'Asset class of the instrument. Use "gold" for XAU/USD / spot gold specifically.',
       },
       signal: { type: 'string', enum: ['buy', 'sell', 'hold'] },
       confidence: {
@@ -100,6 +105,8 @@ const SYSTEM_PROMPT = [
   '- Read support/resistance levels and price zones from the chart axes when legible; otherwise describe them relatively (e.g. "area support terdekat di bawah harga saat ini").',
   '- Write all free-text fields (reasoning, pattern notes, zones, timeframe_note) in Bahasa Indonesia, keeping standard trading terms in English (BUY/SELL/HOLD, stop-loss, take-profit, breakout, dll).',
   '- Suggested stop-loss/take-profit zones are aids, not guarantees — keep them realistic relative to visible volatility.',
+  '- Always identify the instrument and set instrument_class. Recognize GOLD / XAU / XAUUSD / GC / "spot gold" as instrument "XAU/USD" with instrument_class "gold".',
+  '- If instrument_class is "gold" (XAU/USD): tailor the analysis to gold\'s behavior — it typically moves in larger absolute points than forex pairs (e.g. quote levels around 1900–2500 with round-number magnets at 10/25/50-dollar steps), is sensitive to USD strength, real yields, and risk sentiment, and often shows wider intraday ranges. Read support/resistance to gold\'s actual price scale (whole dollars, not 4-decimal pip levels), size stop-loss/take-profit zones to gold\'s wider volatility (tens of dollars, not a handful of pips), mention key round numbers when relevant, and note gold-specific context in the reasoning. Keep BUY/SELL/HOLD conservative as usual.',
 ].join('\n');
 
 // Analyze an uploaded chart screenshot via the platform LLM proxy.
@@ -222,6 +229,28 @@ function demoChartSvg(label, up) {
 // the copied table is always empty there). Never persisted, never in prod.
 const DEMO_ANALYSES = [
   {
+    id: -3,
+    signal: 'buy',
+    confidence: 71,
+    image_data: demoChartSvg('Staging demo — XAU/USD (Gold)', true),
+    analysis: {
+      is_chart: true,
+      instrument: 'Staging demo — XAU/USD',
+      instrument_class: 'gold',
+      signal: 'buy',
+      confidence: 71,
+      trend: 'up',
+      support_levels: ['2.320', '2.300 (round number)'],
+      resistance_levels: ['2.360', '2.400 (round number)'],
+      patterns: [{ name: 'Higher low', note: 'Contoh: emas menahan support di atas 2.300, khas perilaku gold.' }],
+      reasoning: 'Data demo staging: XAU/USD (emas) uptrend, sensitif terhadap kekuatan USD dan real yield. Zona SL/TP dibuat lebih lebar sesuai volatilitas gold (puluhan dolar, bukan pip). Ini contoh, bukan analisis nyata.',
+      stop_loss_zone: '2.298–2.305',
+      take_profit_zone: '2.355–2.365',
+      timeframe_note: 'H4 (contoh)',
+    },
+    created_at: '2026-07-02T10:00:00.000Z',
+  },
+  {
     id: -1,
     signal: 'buy',
     confidence: 68,
@@ -229,6 +258,7 @@ const DEMO_ANALYSES = [
     analysis: {
       is_chart: true,
       instrument: 'Staging demo — EUR/USD',
+      instrument_class: 'forex',
       signal: 'buy',
       confidence: 68,
       trend: 'up',
@@ -250,6 +280,7 @@ const DEMO_ANALYSES = [
     analysis: {
       is_chart: true,
       instrument: 'Staging demo — BTC/USDT',
+      instrument_class: 'crypto',
       signal: 'hold',
       confidence: 45,
       trend: 'sideways',
