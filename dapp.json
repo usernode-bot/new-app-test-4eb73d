@@ -7,6 +7,7 @@
   "tests": [
     { "name": "Halaman utama & upload zone", "path": "/", "expectSelector": "#upload-zone" },
     { "name": "Tombol pilih gambar tampil", "path": "/", "expectSelector": "#pick-image-btn" },
+    { "name": "Tombol ambil foto tampil", "path": "/", "expectSelector": "#camera-btn" },
     { "name": "Disclaimer tampil", "path": "/", "expectText": "bukan saran keuangan" },
     { "name": "Riwayat demo staging", "path": "/?demo=1", "expectText": "Staging demo — EUR/USD" },
     { "name": "Demo gold XAU/USD", "path": "/?demo=1", "expectText": "Staging demo — XAU/USD" }

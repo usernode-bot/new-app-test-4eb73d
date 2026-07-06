@@ -68,20 +68,22 @@
   <script>tailwind.config = { darkMode: 'class' }</script>
   <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
   <style>
-    /* The pick button is a <label> wrapping the real file <input>, which is
-       overlaid transparently on top. On mobile webviews a for-linked,
-       clip-hidden input often won't open the native picker on tap — but a
-       real, full-size (opacity:0) input inside the label receives the tap
-       directly and opens reliably, no synthetic .click() needed. These
-       fallback styles also survive a failed Tailwind CDN load. */
-    #pick-image-btn {
-      position: relative; display: inline-flex; align-items: center; justify-content: center;
-      gap: 0.5rem; overflow: hidden; background-color: #7c3aed; color: #fff; font-weight: 600;
-      border-radius: 0.5rem; padding: 0.75rem 1.5rem; cursor: pointer;
+    /* Upload buttons: plain visible <button>s whose click handler
+       synchronously calls .click() on a real, in-DOM <input type=file>.
+       This is the most reliable pattern across Android webviews (incl.
+       ColorOS/Oppo) — transparent overlaid inputs and clip-hidden inputs
+       are ignored by some of them. The inputs stay in the DOM (moved
+       off-screen, NOT display:none, which would also break the picker).
+       These fallback styles also survive a failed Tailwind CDN load. */
+    .pick-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+      background-color: #7c3aed; color: #fff; font-weight: 600;
+      border: 0; border-radius: 0.5rem; padding: 0.75rem 1.5rem; cursor: pointer; font-size: 1rem;
     }
-    #file-input {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      opacity: 0; cursor: pointer; font-size: 16px; /* 16px avoids iOS focus zoom */
+    #camera-btn { background-color: #3f3f46; }
+    .visually-hidden-input {
+      position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); border: 0;
     }
   </style>
 </head>
@@ -99,11 +101,13 @@
     <div id="upload-zone" class="rounded-xl border-2 border-dashed border-zinc-700 hover:border-violet-500 transition-colors cursor-pointer p-6 text-center select-none">
       <div class="text-4xl mb-2">📈</div>
       <p class="font-medium">Upload screenshot chart</p>
-      <label id="pick-image-btn" class="mt-3 w-full sm:w-auto hover:bg-violet-500 active:scale-95 transition-all">
-        <span>📷 Pilih Gambar</span>
-        <input type="file" id="file-input" accept="image/*">
-      </label>
-      <p class="text-xs text-zinc-500 mt-3">Tap tombol untuk memilih foto/screenshot dari galeri HP Anda. Di desktop: klik area ini, tarik &amp; lepas gambar, atau tempel (Ctrl+V).</p>
+      <div class="mt-3 flex flex-col sm:flex-row gap-2 justify-center">
+        <button type="button" id="pick-image-btn" class="pick-btn w-full sm:w-auto hover:bg-violet-500 active:scale-95 transition-all">🖼️ Pilih Gambar</button>
+        <button type="button" id="camera-btn" class="pick-btn w-full sm:w-auto hover:bg-zinc-600 active:scale-95 transition-all">📷 Ambil Foto</button>
+      </div>
+      <input type="file" id="file-input" accept="image/*" class="visually-hidden-input">
+      <input type="file" id="camera-input" accept="image/*" capture="environment" class="visually-hidden-input">
+      <p class="text-xs text-zinc-500 mt-3">Tap <b>Pilih Gambar</b> untuk memilih screenshot dari galeri, atau <b>Ambil Foto</b> untuk memotret chart dengan kamera. Di desktop: tarik &amp; lepas gambar ke area ini, atau tempel (Ctrl+V).</p>
       <p class="text-xs text-zinc-600 mt-1">JPEG / PNG / WebP, maks 10 MB</p>
     </div>
 
@@ -203,13 +207,18 @@
       img.src = url;
     }
 
-    // The label #pick-image-btn opens the picker natively; only handle clicks
-    // elsewhere in the zone, or the picker would open twice.
+    // Each button synchronously triggers a real in-DOM file input — the most
+    // reliable way to open the native picker across Android webviews.
+    $('pick-image-btn').addEventListener('click', () => $('file-input').click());
+    $('camera-btn').addEventListener('click', () => $('camera-input').click());
+    // Tapping empty space in the zone (not a button) also opens the gallery.
     $('upload-zone').addEventListener('click', (e) => {
-      if (e.target.closest('#pick-image-btn')) return;
+      if (e.target.closest('button')) return;
       $('file-input').click();
     });
-    $('file-input').addEventListener('change', (e) => { if (e.target.files[0]) pickImage(e.target.files[0]); e.target.value = ''; });
+    const onFilePicked = (e) => { if (e.target.files[0]) pickImage(e.target.files[0]); e.target.value = ''; };
+    $('file-input').addEventListener('change', onFilePicked);
+    $('camera-input').addEventListener('change', onFilePicked);
     $('clear-btn').addEventListener('click', () => {
       pendingImage = null;
       $('preview-wrap').classList.add('hidden');
