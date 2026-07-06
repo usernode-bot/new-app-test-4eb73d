@@ -68,16 +68,20 @@
   <script>tailwind.config = { darkMode: 'class' }</script>
   <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
   <style>
-    /* Critical fallback styles so the image-pick button stays visible and
-       tappable even if the Tailwind CDN fails to load (seen on mobile). */
+    /* The pick button is a <label> wrapping the real file <input>, which is
+       overlaid transparently on top. On mobile webviews a for-linked,
+       clip-hidden input often won't open the native picker on tap — but a
+       real, full-size (opacity:0) input inside the label receives the tap
+       directly and opens reliably, no synthetic .click() needed. These
+       fallback styles also survive a failed Tailwind CDN load. */
     #pick-image-btn {
-      display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-      background-color: #7c3aed; color: #fff; font-weight: 600;
+      position: relative; display: inline-flex; align-items: center; justify-content: center;
+      gap: 0.5rem; overflow: hidden; background-color: #7c3aed; color: #fff; font-weight: 600;
       border-radius: 0.5rem; padding: 0.75rem 1.5rem; cursor: pointer;
     }
     #file-input {
-      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      opacity: 0; cursor: pointer; font-size: 16px; /* 16px avoids iOS focus zoom */
     }
   </style>
 </head>
@@ -95,11 +99,13 @@
     <div id="upload-zone" class="rounded-xl border-2 border-dashed border-zinc-700 hover:border-violet-500 transition-colors cursor-pointer p-6 text-center select-none">
       <div class="text-4xl mb-2">📈</div>
       <p class="font-medium">Upload screenshot chart</p>
-      <label for="file-input" id="pick-image-btn" class="mt-3 w-full sm:w-auto hover:bg-violet-500 active:scale-95 transition-all">📷 Pilih Gambar</label>
+      <label id="pick-image-btn" class="mt-3 w-full sm:w-auto hover:bg-violet-500 active:scale-95 transition-all">
+        <span>📷 Pilih Gambar</span>
+        <input type="file" id="file-input" accept="image/*">
+      </label>
       <p class="text-xs text-zinc-500 mt-3">Tap tombol untuk memilih foto/screenshot dari galeri HP Anda. Di desktop: klik area ini, tarik &amp; lepas gambar, atau tempel (Ctrl+V).</p>
       <p class="text-xs text-zinc-600 mt-1">JPEG / PNG / WebP, maks 10 MB</p>
     </div>
-    <input type="file" id="file-input" accept="image/*">
 
     <div id="preview-wrap" class="hidden space-y-3">
       <img id="preview-img" alt="Preview chart" class="w-full rounded-lg border border-zinc-800">
