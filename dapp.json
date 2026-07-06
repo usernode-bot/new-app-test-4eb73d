@@ -1,3 +1,12 @@
 {
-  "secrets": []
+  "secrets": [],
+  "llm": {
+    "purpose": "Analyzes your uploaded chart screenshots to produce a Buy/Sell/Hold signal with technical reasoning",
+    "suggested_daily_cap_cents": 100
+  },
+  "tests": [
+    { "name": "Halaman utama & upload zone", "path": "/", "expectSelector": "#upload-zone" },
+    { "name": "Disclaimer tampil", "path": "/", "expectText": "bukan saran keuangan" },
+    { "name": "Riwayat demo staging", "path": "/?demo=1", "expectText": "Staging demo — EUR/USD" }
+  ]
 }

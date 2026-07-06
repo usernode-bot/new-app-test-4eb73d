@@ -28,11 +28,21 @@ tables you've marked private), etc.
 
 ## About new_app_test
 
-_(add a sentence or two of product context here so Claude Code has a
-shared understanding of what this app is for)_
+Sinyal Chart AI — a forex/crypto chart-analysis signal bot. The user
+uploads a screenshot of a price chart; the server sends it to the
+platform LLM proxy (Claude vision, forced tool-use structured output)
+and renders a BUY/SELL/HOLD signal with confidence, technical
+reasoning, and suggested stop-loss/take-profit zones. Analyses are
+saved per user in the `analyses` table. UI copy is Bahasa Indonesia,
+trading terms in English.
 
 ## App-specific conventions
 
-_(optional — e.g. "all currency values stored as integer cents, not
-floats"; "the `posts` table is append-only"; "avoid adding new
-dependencies"; etc.)_
+- Signals are **analysis aids, not financial advice** — the amber
+  disclaimer must stay always-visible; don't remove or soften it.
+- The `analyses` table is marked `staging:private` (users' charts are
+  owner-only content). Staging demo rows come from the read-only
+  `?demo=1` injection on `GET /api/analyses`, never DB inserts.
+- Images are stored as base64 data-URLs in `analyses.image_data`
+  (client downscales to ≤1400px JPEG q0.85 before upload); history is
+  pruned to the newest 50 rows per user on insert.

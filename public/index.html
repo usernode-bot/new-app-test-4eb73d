@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="id" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
+
   <script>
   // usernode-dev-console@1
   (function () {
@@ -63,59 +63,340 @@
     try { post('info', ['[dev-console ready]'], { kind: 'ready' }); } catch (_) {}
   })();
   </script>
-  <title>new_app_test</title>
+  <title>Sinyal Chart AI</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
 </head>
-<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col items-center justify-center gap-8 p-4">
-  <h1 class="text-2xl font-bold">new_app_test</h1>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen p-4">
+  <div class="max-w-lg mx-auto space-y-5 pb-12">
+    <header class="text-center pt-2">
+      <h1 class="text-2xl font-bold">Sinyal Chart AI</h1>
+      <p class="text-sm text-zinc-400 mt-1">Upload screenshot chart → dapatkan sinyal BUY / SELL / HOLD dengan analisis teknikal.</p>
+    </header>
 
-  <button id="press-btn" class="w-32 h-32 rounded-full bg-violet-600 hover:bg-violet-500 active:scale-95 transition-all text-white text-xl font-bold shadow-lg shadow-violet-600/30">
-    Press!
-  </button>
+    <div id="disclaimer" class="rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-200 text-xs leading-relaxed px-3 py-2">
+      ⚠️ Sinyal ini adalah alat bantu analisis berbasis AI, bukan saran keuangan. Tidak ada jaminan akurasi — selalu lakukan analisis sendiri dan kelola risiko Anda.
+    </div>
 
-  <div id="count" class="text-lg text-zinc-400">0 total presses</div>
+    <div id="upload-zone" class="rounded-xl border-2 border-dashed border-zinc-700 hover:border-violet-500 transition-colors cursor-pointer p-6 text-center select-none">
+      <div class="text-4xl mb-2">📈</div>
+      <p class="font-medium">Upload screenshot chart</p>
+      <p class="text-xs text-zinc-500 mt-1">Klik untuk pilih file, tarik &amp; lepas gambar ke sini, atau tempel (Ctrl+V) dari clipboard.</p>
+      <p class="text-xs text-zinc-600 mt-1">JPEG / PNG / WebP, maks 10 MB</p>
+    </div>
+    <input type="file" id="file-input" accept="image/*" class="hidden">
 
-  <div class="w-full max-w-sm">
-    <h2 class="text-sm font-medium text-zinc-500 mb-2 text-center">Leaderboard</h2>
-    <div id="leaderboard" class="space-y-1"></div>
+    <div id="preview-wrap" class="hidden space-y-3">
+      <img id="preview-img" alt="Preview chart" class="w-full rounded-lg border border-zinc-800">
+      <div class="flex gap-2">
+        <button id="analyze-btn" class="flex-1 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-colors">Analisis Chart</button>
+        <button id="clear-btn" class="px-4 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm transition-colors">Ganti</button>
+      </div>
+    </div>
+
+    <div id="llm-notice" class="hidden rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-400 text-sm px-3 py-2.5 text-center">
+      Analisis AI tidak tersedia di lingkungan ini.
+    </div>
+
+    <div id="status-msg" class="hidden rounded-lg text-sm px-3 py-2.5"></div>
+
+    <div id="result-card" class="hidden rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-4"></div>
+
+    <section>
+      <h2 class="text-sm font-medium text-zinc-500 mb-2">Riwayat Analisis</h2>
+      <div id="history" class="space-y-2">
+        <p class="text-center text-zinc-600 text-sm py-3">Memuat…</p>
+      </div>
+    </section>
   </div>
 
   <script>
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
+    const isDemo = params.get('demo') === '1';
     const headers = token ? { 'x-usernode-token': token } : {};
 
-    async function loadLeaderboard() {
-      const res = await fetch('/api/leaderboard', { headers });
-      if (!res.ok) return;
-      const { leaderboard } = await res.json();
-      const el = document.getElementById('leaderboard');
-      if (!leaderboard.length) {
-        el.innerHTML = '<p class="text-center text-zinc-600 text-sm">No presses yet</p>';
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    const SIGNAL_STYLE = {
+      buy:  { label: 'BUY',  badge: 'bg-green-500/20 text-green-400 border-green-500/40' },
+      sell: { label: 'SELL', badge: 'bg-red-500/20 text-red-400 border-red-500/40' },
+      hold: { label: 'HOLD', badge: 'bg-amber-500/20 text-amber-400 border-amber-500/40' },
+    };
+    const TREND_LABEL = { up: 'Naik (uptrend)', down: 'Turun (downtrend)', sideways: 'Sideways' };
+
+    let llmEnabled = false;
+    let pendingImage = null; // { base64, mediaType, dataUrl }
+    let analyzing = false;
+    let history = [];
+
+    // ---------- Status messages ----------
+    function showStatus(text, kind) {
+      const el = $('status-msg');
+      el.className = 'rounded-lg text-sm px-3 py-2.5 ' + (kind === 'error'
+        ? 'border border-red-500/40 bg-red-500/10 text-red-300'
+        : 'border border-zinc-700 bg-zinc-900 text-zinc-300');
+      el.textContent = text;
+      el.classList.remove('hidden');
+    }
+    function hideStatus() { $('status-msg').classList.add('hidden'); }
+
+    // ---------- Image selection & downscale ----------
+    function pickImage(file) {
+      hideStatus();
+      if (!file || !file.type.startsWith('image/')) {
+        showStatus('File harus berupa gambar (JPEG/PNG/WebP).', 'error');
         return;
       }
-      el.innerHTML = leaderboard.map((r, i) =>
-        '<div class="flex justify-between px-3 py-1 rounded ' + (i === 0 ? 'bg-violet-600/20 text-violet-300' : 'text-zinc-400') + '">' +
-        '<span>' + (i + 1) + '. ' + r.username + '</span>' +
-        '<span class="font-mono">' + r.presses + '</span></div>'
-      ).join('');
-      const total = leaderboard.reduce((s, r) => s + parseInt(r.presses), 0);
-      document.getElementById('count').textContent = total + ' total presses';
+      if (file.size > 10 * 1024 * 1024) {
+        showStatus('Gambar terlalu besar — maksimal 10 MB.', 'error');
+        return;
+      }
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const MAX = 1400;
+          const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          pendingImage = { base64: dataUrl.split(',')[1], mediaType: 'image/jpeg', dataUrl };
+          $('preview-img').src = dataUrl;
+          $('preview-wrap').classList.remove('hidden');
+          $('result-card').classList.add('hidden');
+          updateAnalyzeButton();
+        } catch (e) {
+          showStatus('Gagal memproses gambar — coba file lain.', 'error');
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); showStatus('Gambar tidak bisa dibaca — coba file lain.', 'error'); };
+      img.src = url;
     }
 
-    document.getElementById('press-btn').addEventListener('click', async () => {
-      try {
-        const res = await fetch('/api/press', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...headers },
-        });
-        if (res.ok) loadLeaderboard();
-        else if (res.status === 401) document.getElementById('count').textContent = 'Sign in to press!';
-      } catch {}
+    $('upload-zone').addEventListener('click', () => $('file-input').click());
+    $('file-input').addEventListener('change', (e) => { if (e.target.files[0]) pickImage(e.target.files[0]); e.target.value = ''; });
+    $('clear-btn').addEventListener('click', () => {
+      pendingImage = null;
+      $('preview-wrap').classList.add('hidden');
+      $('file-input').click();
     });
 
-    loadLeaderboard();
+    ['dragover', 'dragenter'].forEach((ev) => $('upload-zone').addEventListener(ev, (e) => {
+      e.preventDefault();
+      $('upload-zone').classList.add('border-violet-500');
+    }));
+    ['dragleave', 'drop'].forEach((ev) => $('upload-zone').addEventListener(ev, (e) => {
+      e.preventDefault();
+      $('upload-zone').classList.remove('border-violet-500');
+    }));
+    $('upload-zone').addEventListener('drop', (e) => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) pickImage(file);
+    });
+    document.addEventListener('paste', (e) => {
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      for (const item of items) {
+        if (item.type && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) { pickImage(file); e.preventDefault(); return; }
+        }
+      }
+    });
+
+    // ---------- Analyze flow ----------
+    function updateAnalyzeButton() {
+      const btn = $('analyze-btn');
+      btn.disabled = analyzing || !llmEnabled || !pendingImage;
+      btn.textContent = analyzing ? 'Menganalisis…' : (llmEnabled ? 'Analisis Chart' : 'AI tidak tersedia');
+    }
+
+    async function requestGrant() {
+      try {
+        if (!window.usernode || !usernode.requestLlmAccess) return false;
+        const r = await usernode.requestLlmAccess();
+        return !!(r && r.granted);
+      } catch (_) {
+        return false; // no platform shell — treat like unavailable
+      }
+    }
+
+    async function postAnalyze() {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ image: pendingImage.base64, media_type: pendingImage.mediaType }),
+      });
+      let body = {};
+      try { body = await res.json(); } catch (_) {}
+      return { status: res.status, body };
+    }
+
+    $('analyze-btn').addEventListener('click', async () => {
+      if (analyzing || !pendingImage || !llmEnabled) return;
+      analyzing = true;
+      hideStatus();
+      updateAnalyzeButton();
+      try {
+        let { status, body } = await postAnalyze();
+
+        if (status === 403 && body.code === 'grant_required') {
+          showStatus('Aplikasi ini butuh izin memakai budget AI harian Anda — periksa dialog izin dari Usernode.', 'info');
+          const granted = await requestGrant();
+          if (granted) {
+            hideStatus();
+            ({ status, body } = await postAnalyze());
+          } else {
+            showStatus('Izin AI ditolak. Analisis butuh akses AI — tekan "Analisis Chart" lagi untuk mencoba memberi izin.', 'error');
+            return;
+          }
+        }
+
+        if (status === 200 && body.item) {
+          renderResult(body.item);
+          history.unshift(body.item);
+          renderHistory();
+          return;
+        }
+        if (status === 422 && body.code === 'not_a_chart') {
+          showStatus('Gambar ini tidak terlihat seperti chart harga — coba upload screenshot chart yang lebih jelas.', 'error');
+          return;
+        }
+        if (status === 429 && body.code === 'app_cap_exceeded') {
+          showStatus('Batas AI harian untuk aplikasi ini tercapai — reset tengah malam UTC.', 'error');
+          return;
+        }
+        if (status === 429 && body.code === 'budget_exceeded') {
+          showStatus('Budget AI harian Anda sudah habis — reset tengah malam UTC.', 'error');
+          return;
+        }
+        if (status === 503 && body.code === 'llm_unavailable') {
+          llmEnabled = false;
+          $('llm-notice').classList.remove('hidden');
+          showStatus('Analisis AI tidak tersedia di lingkungan ini.', 'error');
+          return;
+        }
+        if (status === 403 && body.code === 'grant_required') {
+          showStatus('Izin AI belum diberikan — tekan "Analisis Chart" lagi untuk mencoba memberi izin.', 'error');
+          return;
+        }
+        if (status === 401) {
+          showStatus('Sesi tidak valid — buka aplikasi ini melalui Usernode.', 'error');
+          return;
+        }
+        showStatus(body.error || 'Analisis gagal — coba lagi sebentar lagi.', 'error');
+      } catch (_) {
+        showStatus('Koneksi bermasalah — coba lagi.', 'error');
+      } finally {
+        analyzing = false;
+        updateAnalyzeButton();
+      }
+    });
+
+    // ---------- Rendering ----------
+    function confidenceBar(conf) {
+      const low = conf < 50;
+      const color = low ? 'bg-amber-500' : 'bg-violet-500';
+      return '<div>' +
+        '<div class="flex justify-between text-xs text-zinc-400 mb-1">' +
+          '<span>Keyakinan: <span class="font-semibold text-zinc-200">' + conf + '%</span></span>' +
+          (low ? '<span class="text-amber-400">⚠️ Keyakinan rendah</span>' : '') +
+        '</div>' +
+        '<div class="h-2 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full ' + color + '" style="width:' + conf + '%"></div></div>' +
+      '</div>';
+    }
+
+    function levelChips(levels, colorClass) {
+      if (!Array.isArray(levels) || !levels.length) return '<span class="text-zinc-600 text-xs">tidak teridentifikasi</span>';
+      return levels.map((l) => '<span class="inline-block px-2 py-0.5 rounded text-xs font-mono ' + colorClass + '">' + esc(l) + '</span>').join(' ');
+    }
+
+    function renderResult(item) {
+      const a = item.analysis || {};
+      const sig = SIGNAL_STYLE[item.signal] || SIGNAL_STYLE.hold;
+      const patterns = Array.isArray(a.patterns) ? a.patterns : [];
+      const card = $('result-card');
+      card.innerHTML =
+        '<div class="flex items-center justify-between gap-3">' +
+          '<div>' +
+            '<div class="text-xs text-zinc-500">' + esc(a.instrument || 'Instrumen tidak terbaca') + (a.timeframe_note ? ' · ' + esc(a.timeframe_note) : '') + '</div>' +
+            '<div class="text-xs text-zinc-600 mt-0.5">' + new Date(item.created_at).toLocaleString('id-ID') + '</div>' +
+          '</div>' +
+          '<span class="px-4 py-1.5 rounded-lg border text-xl font-bold ' + sig.badge + '">' + sig.label + '</span>' +
+        '</div>' +
+        confidenceBar(item.confidence) +
+        '<div class="space-y-2">' +
+          '<h3 class="text-sm font-semibold text-zinc-300">Analisis teknikal</h3>' +
+          '<p class="text-sm text-zinc-400 leading-relaxed">' + esc(a.reasoning || '—') + '</p>' +
+          '<div class="text-sm text-zinc-400">Tren: <span class="text-zinc-200">' + esc(TREND_LABEL[a.trend] || a.trend || '—') + '</span></div>' +
+          '<div class="text-sm text-zinc-400">Support: ' + levelChips(a.support_levels, 'bg-green-500/15 text-green-300') + '</div>' +
+          '<div class="text-sm text-zinc-400">Resistance: ' + levelChips(a.resistance_levels, 'bg-red-500/15 text-red-300') + '</div>' +
+          (patterns.length
+            ? '<div class="text-sm text-zinc-400">Pola: <ul class="list-disc list-inside mt-1 space-y-0.5">' +
+                patterns.map((p) => '<li><span class="text-zinc-200">' + esc(p.name) + '</span>' + (p.note ? ' — ' + esc(p.note) : '') + '</li>').join('') +
+              '</ul></div>'
+            : '<div class="text-sm text-zinc-500">Tidak ada pola candlestick/chart yang menonjol.</div>') +
+        '</div>' +
+        '<div class="grid grid-cols-2 gap-2 text-sm">' +
+          '<div class="rounded-lg bg-red-500/10 border border-red-500/30 p-2.5"><div class="text-xs text-red-300 mb-0.5">Zona Stop-Loss (saran)</div><div class="font-mono text-zinc-200">' + esc(a.stop_loss_zone || '—') + '</div></div>' +
+          '<div class="rounded-lg bg-green-500/10 border border-green-500/30 p-2.5"><div class="text-xs text-green-300 mb-0.5">Zona Take-Profit (saran)</div><div class="font-mono text-zinc-200">' + esc(a.take_profit_zone || '—') + '</div></div>' +
+        '</div>' +
+        '<p class="text-[11px] text-amber-300/80 border-t border-zinc-800 pt-2">Alat bantu analisis AI — bukan saran keuangan, tidak ada jaminan akurasi.</p>';
+      card.classList.remove('hidden');
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function renderHistory() {
+      const el = $('history');
+      if (!history.length) {
+        el.innerHTML = '<p class="text-center text-zinc-600 text-sm py-3">Belum ada analisis. Upload screenshot chart untuk memulai.</p>';
+        return;
+      }
+      el.innerHTML = history.map((item, i) => {
+        const a = item.analysis || {};
+        const sig = SIGNAL_STYLE[item.signal] || SIGNAL_STYLE.hold;
+        return '<button data-idx="' + i + '" class="history-item w-full flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 hover:border-zinc-600 transition-colors p-2 text-left">' +
+          '<img src="' + esc(item.image_data) + '" alt="chart" class="w-16 h-12 object-cover rounded border border-zinc-800 shrink-0">' +
+          '<div class="min-w-0 flex-1">' +
+            '<div class="text-sm text-zinc-200 truncate">' + esc(a.instrument || 'Chart') + '</div>' +
+            '<div class="text-xs text-zinc-500">' + new Date(item.created_at).toLocaleString('id-ID') + '</div>' +
+          '</div>' +
+          '<div class="text-right shrink-0">' +
+            '<span class="px-2 py-0.5 rounded border text-xs font-bold ' + sig.badge + '">' + sig.label + '</span>' +
+            '<div class="text-xs text-zinc-500 mt-1">' + item.confidence + '%</div>' +
+          '</div>' +
+        '</button>';
+      }).join('');
+      el.querySelectorAll('.history-item').forEach((btn) => {
+        btn.addEventListener('click', () => renderResult(history[parseInt(btn.dataset.idx, 10)]));
+      });
+    }
+
+    // ---------- Boot ----------
+    async function boot() {
+      try {
+        const res = await fetch('/api/llm-status', { headers });
+        if (res.ok) llmEnabled = !!(await res.json()).enabled;
+      } catch (_) {}
+      if (!llmEnabled) $('llm-notice').classList.remove('hidden');
+      updateAnalyzeButton();
+
+      try {
+        const res = await fetch('/api/analyses' + (isDemo ? '?demo=1' : ''), { headers });
+        if (res.ok) history = (await res.json()).items || [];
+      } catch (_) {}
+      renderHistory();
+    }
+    boot();
   </script>
 </body>
 </html>
